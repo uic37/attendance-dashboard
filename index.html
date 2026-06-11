@@ -743,7 +743,7 @@ function generateStandalone() {
 
   // Hide edit UI
   finalHtml = finalHtml.replace('</head>',
-    '<style id="standaloneHider">#btnImport,#btnExportPack,#btnImportPack,#btnClear,#btnEditMode,#btnGenerate,#loginOverlay,#roleBadge{display:none!important}.topbar .logo::after{content:" 📋 只读看板";font-size:.75rem;color:#00c853;font-weight:400;margin-left:6px}.note-input-wrap{display:none!important}</style>\n</head>');
+    '\n</head>');
 
   // Download
   const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
