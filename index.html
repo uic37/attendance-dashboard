@@ -743,7 +743,7 @@ function generateStandalone() {
 
   // Hide edit UI
   finalHtml = finalHtml.replace('</head>',
-    '<style id="standaloneHider">#btnImport,#btnExportPack,#btnImportPack,#btnClear,#btnEditMode,#btnGenerate,#loginOverlay,#roleBadge{display:none!important}.topbar .logo::after{content:" 📋 只读看板";font-size:.75rem;color:#00c853;font-weight:400;margin-left:6px}.note-input-wrap{display:none!important}</style>\n</head>');
+    '\n</head>');
 
   // Download
   const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
@@ -2249,17 +2249,8 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch(e) { console.error(e); }
     }
 
-    // Hide edit UI
-    var hideIds = ['btnImport','btnExportPack','btnImportPack','btnClear','btnEditMode','btnGenerate','loginOverlay'];
-    for (var j = 0; j < hideIds.length; j++) {
-      try { var he = document.getElementById(hideIds[j]); if (he) he.style.display = 'none'; } catch(e) {}
-    }
-    try {
-      var bd = document.getElementById('roleBadge');
-      if (bd) { bd.className = 'role-badge editor'; bd.textContent = '📋 只读看板'; }
-      var nw = document.querySelector('.note-input-wrap');
-      if (nw) nw.style.display = 'none';
-    } catch(e) {}
+    // Note: Edit UI is kept visible for online deployment
+    // Users can click edit mode to import new data
 
     // Render: update selectors and show dashboard
     updateCycleSelectors();
