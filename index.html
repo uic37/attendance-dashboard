@@ -529,7 +529,7 @@ var Fr={},Gr={};var Wr,Hr=function(){function t(t,e,n){var i=this;this._sleepAft
 <script>
 /* ==================== STANDALONE DETECTION ==================== */
 // STANDBY_MARKER is replaced with 'true' by Python build script
-const IS_STANDALONE = true;
+var IS_STANDALONE = true;
 function detectStandalone() { return IS_STANDALONE; }
 
 /* ==================== PERMISSION SYSTEM ==================== */
@@ -2227,7 +2227,7 @@ document.getElementById('packInput').addEventListener('change', async function(e
 
 // Restore on load
 document.addEventListener('DOMContentLoaded', () => {
-  IS_STANDALONE = detectStandalone();
+  /* IS_STANDALONE = detectStandalone(); */
   if (IS_STANDALONE) {
     // === Standalone mode: load from embedded data, hide edit UI ===
     isEditMode = false;
