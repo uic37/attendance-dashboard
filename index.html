@@ -1266,17 +1266,15 @@ function renderAll(primary, compare) {
   // Render table with comparison data
   renderTable(filtered, compareSummary, hasCompare);
   // Render charts after DOM is fully painted
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (hasCompare) {
-        renderCompareRateCharts(filtered, compareSummary);
-      } else {
-        renderBarChart(filtered, compareSummary);
-      }
-      renderAttendanceChart(filtered);
-      renderResignChart(filtered);
-    });
-  });
+  setTimeout(function() {
+    if (hasCompare) {
+      renderCompareRateCharts(filtered, compareSummary);
+    } else {
+      renderBarChart(filtered, compareSummary);
+    }
+    renderAttendanceChart(filtered);
+    renderResignChart(filtered);
+  }, 100);
   // Render notes
   renderNotes();
 }
