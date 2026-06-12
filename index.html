@@ -1274,18 +1274,14 @@ function renderAll(primary, compare) {
   }
 
   // Ad-hoc notes
-  html += '<div class="ad-hoc-notes">';
-  html += '<div class="section-title">📝 本期说明</div>';
-  html += '<div class="notes-list">';
-  if (primary.adhocNotes && primary.adhocNotes.length > 0) {
-    primary.adhocNotes.forEach(function(n) {
-      html += '<div class="note-entry"><div class="note-content">' + escapeHtml(n) + '</div></div>';
-    });
-  } else {
-    html += '<div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">暂无本期说明</div>';
-  }
-  html += '</div>';
-  html += '</div>';
+  html += `<div class="ad-hoc-notes">
+    <div class="section-title">📝 本期说明</div>
+    <div class="notes-list" id="notesList"></div>
+    <div class="note-input-wrap">
+      <textarea id="noteInput" placeholder="输入本期说明（纯文本）…" rows="2" ${isEditMode ? '' : 'disabled'}></textarea>
+      <button class="btn btn-primary btn-sm" onclick="addNote()" ${isEditMode ? '' : 'disabled'}>💾 保存</button>
+    </div>
+  </div>`;
 
   container.innerHTML = html;
 
@@ -1520,51 +1516,20 @@ function renderBarChart(data, compareData) {
   const accRates = data.map(r => r.准确率 != null && !isNaN(r.准确率) ? +(r.准确率 * 100).toFixed(1) : null);
   const resignRates = data.map(r => r.补签率 != null && !isNaN(r.补签率) ? +(r.补签率 * 100).toFixed(1) : null);
 
-  const series = [
-    { name: '录入率 %', type: 'bar', data: entryRates, itemStyle: { color: '#3370ff', borderRadius: [4,4,0,0] }, barGap: '15%', label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '—' } },
-    { name: '准确率 %', type: 'bar', data: accRates, itemStyle: { color: '#00bcd4', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '—' } },
-    { name: '补签率 %', type: 'bar', data: resignRates, itemStyle: { color: '#ff9100', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '—' } }
-  ];
-
-  // If compare data, add comparison bars for all three rates
-  if (compareData) {
-    const cmpFiltered = compareData.filter(r => !r.isTotal);
-    const cmpMap = {};
-    cmpFiltered.forEach(r => { cmpMap[r.org3] = r; });
-    const cmpEntry = data.map(r => {
-      const cr = cmpMap[r.org3];
-      return (cr && cr.录入率 != null && !isNaN(cr.录入率)) ? +(cr.录入率 * 100).toFixed(1) : null;
-    });
-    const cmpAcc = data.map(r => {
-      const cr = cmpMap[r.org3];
-      return (cr && cr.准确率 != null && !isNaN(cr.准确率)) ? +(cr.准确率 * 100).toFixed(1) : null;
-    });
-    const cmpResign = data.map(r => {
-      const cr = cmpMap[r.org3];
-      return (cr && cr.补签率 != null && !isNaN(cr.补签率)) ? +(cr.补签率 * 100).toFixed(1) : null;
-    });
-    series.push(
-      { name: '录入率(对比)', type: 'bar', data: cmpEntry, itemStyle: { color: 'rgba(51,112,255,0.25)', borderColor: '#3370ff', borderWidth: 1, borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: 'rgba(51,112,255,0.55)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' } },
-      { name: '准确率(对比)', type: 'bar', data: cmpAcc, itemStyle: { color: 'rgba(0,188,212,0.25)', borderColor: '#00bcd4', borderWidth: 1, borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: 'rgba(0,188,212,0.55)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' } },
-      { name: '补签率(对比)', type: 'bar', data: cmpResign, itemStyle: { color: 'rgba(255,145,0,0.25)', borderColor: '#ff9100', borderWidth: 1, borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: 'rgba(255,145,0,0.55)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' } }
-    );
-  }
-
-  // Benchmark lines at 90% and 70%
-  const markLines = [
-    { yAxis: 90, lineStyle: { color: 'rgba(0,181,120,0.5)', type: 'dashed', width: 1.5 }, label: { show: true, formatter: '90% 达标', color: '#00b578', fontSize: 10, position: 'end' } },
-    { yAxis: 70, lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1.5 }, label: { show: true, formatter: '70% 警戒', color: '#ffaa00', fontSize: 10, position: 'end' } }
-  ];
-
   chart.setOption({
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: function(params) { return params.map(p => `${p.marker} ${p.seriesName}: ${p.value != null ? p.value + '%' : '—'}`).join('<br>'); } },
-    legend: { data: series.map(s => s.name), textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['录入率 %', '准确率 %', '补签率 %'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
     grid: { left: '3%', right: '6%', top: 18, bottom: 45, containLabel: true },
     xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
     yAxis: { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
-    series: series.map(s => ({ ...s, markLine: (s.name.includes('对比') || s.name.includes('补签')) ? undefined : { silent: true, symbol: 'none', data: markLines } }))
+    series: [
+      { name: '录入率 %', type: 'bar', data: entryRates, itemStyle: { color: '#3370ff', borderRadius: [4,4,0,0] }, barGap: '15%', label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '准确率 %', type: 'bar', data: accRates, itemStyle: { color: '#00bcd4', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '补签率 %', type: 'bar', data: resignRates, itemStyle: { color: '#ff9100', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '90% 达标', type: 'line', data: cats.map(function() { return 90; }), lineStyle: { color: 'rgba(0,181,120,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } },
+      { name: '70% 警戒', type: 'line', data: cats.map(function() { return 70; }), lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } }
+    ]
   }, true);
-}
 
 function renderTrendChart(data, compareSummary, hasCompare) {
   const dom = document.getElementById('chartTrend');
