@@ -1220,8 +1220,13 @@ function renderAll(primary, compare) {
       <div class="chart-panel"><h3>📝 补签数据</h3><div class="chart-box" id="chartResign"></div></div>
     </div>`;
   } else {
+    // Non-compare mode: use three separate charts (same layout as compare mode)
     html += `<div class="chart-row">
-      <div class="chart-panel"><h3>📊 录入率 & 准确率 & 补签率</h3><div class="chart-box" id="chartBar"></div></div>
+      <div class="chart-panel"><h3>📊 录入率</h3><div class="chart-box" id="chartBarEntry"></div></div>
+      <div class="chart-panel"><h3>📊 准确率</h3><div class="chart-box" id="chartBarAcc"></div></div>
+    </div>`;
+    html += `<div class="chart-row">
+      <div class="chart-panel"><h3>📊 补签率</h3><div class="chart-box" id="chartBarResign"></div></div>
       <div class="chart-panel"><h3>👥 打卡数据</h3><div class="chart-box" id="chartAttendance"></div></div>
     </div>`;
     html += `<div class="chart-row">
@@ -1270,7 +1275,7 @@ function renderAll(primary, compare) {
     if (hasCompare) {
       renderCompareRateCharts(filtered, compareSummary);
     } else {
-      renderBarChart(filtered, compareSummary);
+      renderCompareRateCharts(filtered, null);
     }
     renderAttendanceChart(filtered);
     renderResignChart(filtered);
@@ -1479,20 +1484,22 @@ function installResizeHandler() {
 }
 
 function renderBarChart(data, compareData) {
+  // Use the same rendering approach as compare mode, but without comparison data
+  // This reuses the proven renderOneRate function
+  var cats = data.map(function(r) { return r.org3; });
   var dom = document.getElementById('chartBar');
-  if (!dom) return;
+  if (!dom || !cats.length) return;
   installResizeHandler();
   var chart = dom._echart;
   if (!chart) {
     chart = echarts.init(dom);
     dom._echart = chart;
   }
-  var cats = data.map(function(r) { return r.org3; });
   var entryRates = data.map(function(r) { return r.录入率 != null && !isNaN(r.录入率) ? +(r.录入率 * 100).toFixed(1) : null; });
   var accRates = data.map(function(r) { return r.准确率 != null && !isNaN(r.准确率) ? +(r.准确率 * 100).toFixed(1) : null; });
   var resignRates = data.map(function(r) { return r.补签率 != null && !isNaN(r.补签率) ? +(r.补签率 * 100).toFixed(1) : null; });
 
-  chart.setOption({
+  var option = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: { data: ['录入率 %', '准确率 %', '补签率 %'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
     grid: { left: '3%', right: '6%', top: 18, bottom: 45, containLabel: true },
@@ -1505,7 +1512,8 @@ function renderBarChart(data, compareData) {
       { name: '90% 达标', type: 'line', data: cats.map(function() { return 90; }), lineStyle: { color: 'rgba(0,181,120,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } },
       { name: '70% 警戒', type: 'line', data: cats.map(function() { return 70; }), lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } }
     ]
-  }, true);
+  };
+  chart.setOption(option, true);
 }
 
 function renderTrendChart(data, compareSummary, hasCompare) {
@@ -1569,9 +1577,12 @@ function renderTrendChart(data, compareSummary, hasCompare) {
 function renderCompareRateCharts(data, compareSummary) {
   const primaryDN = getPrimaryDisplayName();
   const compareDN = getCompareDisplayName();
-  const cmpFiltered = compareSummary.filter(r => !r.isTotal);
+  const hasCmp = compareSummary && compareSummary.length > 0;
+  const cmpFiltered = hasCmp ? compareSummary.filter(r => !r.isTotal) : [];
   const cmpMap = {};
-  cmpFiltered.forEach(r => { cmpMap[r.org3] = r; });
+  if (hasCmp) {
+    cmpFiltered.forEach(r => { cmpMap[r.org3] = r; });
+  }
 
   const cats = data.map(r => r.org3);
 
@@ -1588,54 +1599,77 @@ function renderCompareRateCharts(data, compareSummary) {
       const v = r[field];
       return (v != null && !isNaN(v)) ? +(v * 100).toFixed(1) : null;
     });
-    const compareVals = data.map(r => {
-      const cr = cmpMap[r.org3];
-      if (!cr) return null;
-      const v = cr[field];
-      return (v != null && !isNaN(v)) ? +(v * 100).toFixed(1) : null;
-    });
-    // Change line data: difference between primary and compare
-    const changeVals = primaryVals.map((pv, i) => {
-      const cv = compareVals[i];
-      if (pv == null || cv == null) return null;
-      return +(pv - cv).toFixed(1);
-    });
 
-    chart.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
-        formatter: function(params) {
-          return params.map(p => {
-            if (p.seriesName === '变化') return `${p.marker} 变化: ${p.value > 0 ? '+' : ''}${p.value}pp`;
-            return `${p.marker} ${p.seriesName}: ${p.value != null ? p.value + '%' : '—'}`;
-          }).join('<br>');
-        }
-      },
-      legend: { data: [primaryDN, compareDN, '变化'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
-      grid: { left: '3%', right: '8%', top: 12, bottom: 45, containLabel: true },
-      xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
-      yAxis: [
-        { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
-        { type: 'value', axisLabel: { color: '#ffaa00', formatter: function(v){ return (v>0?'+':'')+v+'pp'; } }, splitLine: { show: false } }
-      ],
-      series: [
-        { name: primaryDN, type: 'bar', data: primaryVals, barGap: '30%',
-          itemStyle: { color: color, borderRadius: [4,4,0,0] },
-          label: { show: true, position: 'top', color: color, fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '' }
+    if (hasCmp) {
+      const compareVals = data.map(r => {
+        const cr = cmpMap[r.org3];
+        if (!cr) return null;
+        const v = cr[field];
+        return (v != null && !isNaN(v)) ? +(v * 100).toFixed(1) : null;
+      });
+      const changeVals = primaryVals.map((pv, i) => {
+        const cv = compareVals[i];
+        if (pv == null || cv == null) return null;
+        return +(pv - cv).toFixed(1);
+      });
+
+      chart.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+          formatter: function(params) {
+            return params.map(p => {
+              if (p.seriesName === '变化') return `${p.marker} 变化: ${p.value > 0 ? '+' : ''}${p.value}pp`;
+              return `${p.marker} ${p.seriesName}: ${p.value != null ? p.value + '%' : '—'}`;
+            }).join('<br>');
+          }
         },
-        { name: compareDN, type: 'bar', data: compareVals,
-          itemStyle: { color: 'rgba(0,0,0,0.04)', borderColor: color, borderWidth: 1.5, borderRadius: [4,4,0,0] },
-          label: { show: true, position: 'top', color: 'rgba(0,0,0,0.3)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' }
+        legend: { data: [primaryDN, compareDN, '变化'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+        grid: { left: '3%', right: '8%', top: 12, bottom: 45, containLabel: true },
+        xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+        yAxis: [
+          { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+          { type: 'value', axisLabel: { color: '#ffaa00', formatter: function(v){ return (v>0?'+':'')+v+'pp'; } }, splitLine: { show: false } }
+        ],
+        series: [
+          { name: primaryDN, type: 'bar', data: primaryVals, barGap: '30%',
+            itemStyle: { color: color, borderRadius: [4,4,0,0] },
+            label: { show: true, position: 'top', color: color, fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '' }
+          },
+          { name: compareDN, type: 'bar', data: compareVals,
+            itemStyle: { color: 'rgba(0,0,0,0.04)', borderColor: color, borderWidth: 1.5, borderRadius: [4,4,0,0] },
+            label: { show: true, position: 'top', color: 'rgba(0,0,0,0.3)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' }
+          },
+          { name: '变化', type: 'line', data: changeVals, yAxisIndex: 1,
+            itemStyle: { color: '#ffaa00' }, lineStyle: { width: 2.5 },
+            symbol: 'circle', symbolSize: 10,
+            label: { show: true, position: 'top', color: '#ffaa00', fontSize: 11, fontWeight: 'bold',
+              formatter: p => p.value != null ? (p.value > 0 ? '+' : '') + p.value + 'pp' : '' },
+            markLine: { silent: true, symbol: 'none',
+              data: [{ yAxis: 0, lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1 }, label: { formatter: '0', color: '#ffaa00', fontSize: 9 } }] }
+          }
+        ]
+      }, true);
+    } else {
+      // No comparison: single bar series
+      chart.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+          formatter: function(params) {
+            return params.map(p => {
+              return `${p.marker} ${p.seriesName}: ${p.value != null ? p.value + '%' : '—'}`;
+            }).join('<br>');
+          }
         },
-        { name: '变化', type: 'line', data: changeVals, yAxisIndex: 1,
-          itemStyle: { color: '#ffaa00' }, lineStyle: { width: 2.5 },
-          symbol: 'circle', symbolSize: 10,
-          label: { show: true, position: 'top', color: '#ffaa00', fontSize: 11, fontWeight: 'bold',
-            formatter: p => p.value != null ? (p.value > 0 ? '+' : '') + p.value + 'pp' : '' },
-          markLine: { silent: true, symbol: 'none',
-            data: [{ yAxis: 0, lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1 }, label: { formatter: '0', color: '#ffaa00', fontSize: 9 } }] }
-        }
-      ]
-    }, true);
+        legend: { data: [title], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+        grid: { left: '3%', right: '4%', top: 12, bottom: 45, containLabel: true },
+        xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+        yAxis: { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+        series: [
+          { name: title, type: 'bar', data: primaryVals,
+            itemStyle: { color: color, borderRadius: [4,4,0,0] },
+            label: { show: true, position: 'top', color: color, fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '' }
+          }
+        ]
+      }, true);
+    }
   }
 
   renderOneRate('chartBarEntry', '录入率', '录入率', '#3370ff');
