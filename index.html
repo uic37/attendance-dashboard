@@ -1251,15 +1251,20 @@ function renderAll(primary, compare) {
     html += `</div>`;
   }
 
-  // Ad-hoc notes
-  html += `<div class="ad-hoc-notes">
-    <div class="section-title">📝 本期说明</div>
-    <div class="notes-list" id="notesList"></div>
-    <div class="note-input-wrap">
-      <textarea id="noteInput" placeholder="输入本期说明（纯文本）…" rows="2" ${isEditMode ? '' : 'disabled'}></textarea>
-      <button class="btn btn-primary btn-sm" onclick="addNote()" ${isEditMode ? '' : 'disabled'}>💾 保存</button>
-    </div>
-  </div>`;
+  //   // Ad-hoc notes
+  html += '<div class="ad-hoc-notes">';
+  html += '<div class="section-title">\U0001f4dd \u672c\u671f\u8bf4\u660e</div>';
+  html += '<div class="notes-list">';
+  if (primary.adhocNotes && primary.adhocNotes.length > 0) {
+    primary.adhocNotes.forEach(function(n) {
+      html += '<div class="note-entry"><div class="note-content">' + escapeHtml(n) + '</div></div>';
+    });
+  } else {
+    html += '<div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">\u6682\u65e0\u672c\u671f\u8bf4\u660e</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+
 
   container.innerHTML = html;
 
