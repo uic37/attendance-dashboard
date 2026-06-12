@@ -1251,17 +1251,778 @@ function renderAll(primary, compare) {
     html += `</div>`;
   }
 
-    // Ad-hoc notes
-  html += '<div class="ad-hoc-notes">';
-  html += '<div class="section-title">📝 本期说明</div>';
-  html += '<div class="notes-list">';
-  if (primary.adhocNotes && primary.adhocNotes.length > 0) {
-    primary.adhocNotes.forEach(function(n) {
-      html += '<div class="note-entry"><div class="note-content">' + escapeHtml(n) + '</div></div>';
+  // Ad-hoc notes
+  html += `<div class="ad-hoc-notes">
+    <div class="section-title">📝 本期说明</div>
+    <div class="notes-list" id="notesList"></div>
+    <div class="note-input-wrap">
+      <textarea id="noteInput" placeholder="输入本期说明（纯文本）…" rows="2" ${isEditMode ? '' : 'disabled'}></textarea>
+      <button class="btn btn-primary btn-sm" onclick="addNote()" ${isEditMode ? '' : 'disabled'}>💾 保存</button>
+    </div>
+  </div>`;
+
+  container.innerHTML = html;
+
+  // Render table with comparison data
+  renderTable(filtered, compareSummary, hasCompare);
+  // Render charts after DOM is fully painted
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (hasCompare) {
+        renderCompareRateCharts(filtered, compareSummary);
+      } else {
+        renderBarChart(filtered, compareSummary);
+      }
+      renderAttendanceChart(filtered);
+      renderResignChart(filtered);
+    });
+  });
+  // Render notes
+  renderNotes();
+}
+
+function renderKpiCard(label, value, change, rate, icon) {
+  const lvl = rate !== null && rate !== undefined ? getRateLevel(rate) : 'neutral';
+  const badgeMap = { green: '达标', yellow: '注意', red: '告警' };
+  const iconMap = { target: '🎯', check: '✅', edit: '✏️', alert: '⚠️' };
+  let badge = '';
+  if (lvl !== 'neutral') {
+    badge = `<span class="kpi-badge ${lvl}">${badgeMap[lvl] || ''}</span>`;
+  }
+  return `<div class="kpi-card level-${lvl}">
+    ${badge}
+    <div class="kpi-label">${iconMap[icon]||''} ${label}</div>
+    <div class="kpi-value">${value}</div>
+    ${change}
+  </div>`;
+}
+
+/* ==================== TABLE ==================== */
+let tableSortField = null;
+let tableSortDir = 'asc';
+
+function sortTable(field) {
+  if (tableSortField === field) {
+    tableSortDir = tableSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    tableSortField = field;
+    tableSortDir = 'asc';
+  }
+  const primary = DataStore.getPrimary();
+  if (primary) {
+    const filtered = applyFilters(primary.summary);
+    renderTable(filtered);
+  }
+}
+
+function renderTable(data, compareSummary, hasCompare) {
+  let rows = [...data];
+
+  // Include total row from primary summary
+  const primary = DataStore.getPrimary();
+  let totalRow = null;
+  if (primary) {
+    totalRow = primary.summary.find(r => r.isTotal) || null;
+    if (totalRow) rows = [...rows, { ...totalRow, _isTotalRow: true }];
+  }
+
+  // Build comparison map
+  let cmpMap = {};
+  if (hasCompare && compareSummary) {
+    compareSummary.forEach(r => { if (!r.isTotal) cmpMap[r.org3] = r; });
+  }
+
+  // Compute dynamic 环比 (only when comparison is selected)
+  rows = rows.map(r => {
+    let entryDelta = null;
+    let accDelta = null;
+    if (hasCompare) {
+      if (cmpMap[r.org3]) {
+        entryDelta = (r.录入率 || 0) - (cmpMap[r.org3].录入率 || 0);
+        accDelta = (r.准确率 || 0) - (cmpMap[r.org3].准确率 || 0);
+      }
+    }
+    return { ...r, _entryDelta: entryDelta, _accDelta: accDelta, _cmp: cmpMap[r.org3] || null };
+  });
+
+  if (tableSortField) {
+    rows.sort((a, b) => {
+      let va = a[tableSortField], vb = b[tableSortField];
+      if (va === null || va === undefined) va = '';
+      if (vb === null || vb === undefined) vb = '';
+      if (typeof va === 'string') {
+        const cmp = va.localeCompare(vb, 'zh-CN');
+        return tableSortDir === 'asc' ? cmp : -cmp;
+      }
+      const cmp = (va || 0) - (vb || 0);
+      return tableSortDir === 'asc' ? cmp : -cmp;
+    });
+  }
+
+  const tbody = document.getElementById('tableBody');
+  if (!tbody) return;
+
+  // Dynamically rebuild thead for comparison
+  const theadTr = document.getElementById('tableHeadRow');
+  // Base columns: 2 org + 11 data = 13; +3 compare cols if hasCompare; +2 环比 cols if hasCompare
+  const totalCols = hasCompare ? 18 : 13;
+  if (theadTr) {
+    let thHtml = `<th onclick="sortTable('org2')">三级组织 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('org3')">四级组织 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('录入率')">录入率 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('准确率')">准确率 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('有卡考勤数')">有卡考勤数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('无卡未统计')">线下无卡未统计考勤数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('应打卡数')">有卡应打卡数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('实际打卡数')">实际打卡数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('工时异常数')">工时异常数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('应补签数')">应补签数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('已补签数')">已补签数 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('补签率')">补签率 ⇅</th>`;
+    thHtml += `<th onclick="sortTable('待补签数')">待补签数 ⇅</th>`;
+    if (hasCompare) {
+      thHtml += `<th style="color:var(--accent)">对比·录入率</th>`;
+      thHtml += `<th style="color:var(--accent)">对比·准确率</th>`;
+      thHtml += `<th style="color:var(--accent)">对比·补签率</th>`;
+      thHtml += `<th onclick="sortTable('录入率对比')">录入率环比 ⇅</th>`;
+      thHtml += `<th onclick="sortTable('准确率对比')">准确率环比 ⇅</th>`;
+    }
+    theadTr.innerHTML = thHtml;
+  }
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align:center;color:var(--text-muted);padding:20px;">无匹配数据</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const isTotal = r._isTotalRow;
+    const rowClass = isTotal ? 'row-total' : getRowClass(r.录入率, r.准确率);
+    const entryCls = isTotal ? 'rate-total' : getRateClass(r.录入率);
+    const accCls = isTotal ? 'rate-total' : getRateClass(r.准确率);
+    const style = isTotal ? ' style="font-weight:700;border-top:2px solid var(--accent);"' : '';
+    const onclick = '';
+    const title = isTotal ? '欧洲区总计' : '';
+
+    let cmpCols = '';
+    if (hasCompare) {
+      if (r._cmp) {
+        const cr = r._cmp;
+        cmpCols = `<td class="${getRateClass(cr.录入率)}">${formatRate(cr.录入率)}</td>`
+          + `<td class="${getRateClass(cr.准确率)}">${formatRate(cr.准确率)}</td>`
+          + `<td class="${getRateClass(cr.补签率)}">${formatRate(cr.补签率)}</td>`;
+      } else if (compareSummary) {
+        // Try to get compare total row
+        const cmpTotal = compareSummary.find(cr => cr.isTotal);
+        if (cmpTotal) {
+          cmpCols = `<td class="${getRateClass(cmpTotal.录入率)}">${formatRate(cmpTotal.录入率)}</td>`
+            + `<td class="${getRateClass(cmpTotal.准确率)}">${formatRate(cmpTotal.准确率)}</td>`
+            + `<td class="${getRateClass(cmpTotal.补签率)}">${formatRate(cmpTotal.补签率)}</td>`;
+        } else {
+          cmpCols = '<td>/</td><td>/</td><td>/</td>';
+        }
+      } else {
+        cmpCols = '<td>/</td><td>/</td><td>/</td>';
+      }
+    }
+    return `<tr class="${rowClass}" ${onclick} title="${title}"${style}>
+      <td>${r.org2 || (isTotal ? '—' : '')}</td><td>${r.org3}</td>
+      <td class="${entryCls}">${formatRate(r.录入率)}</td>
+      <td class="${accCls}">${formatRate(r.准确率)}</td>
+      <td>${formatInt(r.有卡考勤数)}</td>
+      <td>${formatInt(r.无卡未统计)}</td>
+      <td>${formatInt(r.应打卡数)}</td>
+      <td>${formatInt(r.实际打卡数)}</td>
+      <td>${formatInt(r.工时异常数)}</td>
+      <td>${formatInt(r.应补签数)}</td>
+      <td>${formatInt(r.已补签数)}</td>
+      <td>${formatRate(r.补签率)}</td>
+      <td>${formatInt(r.待补签数)}</td>
+      ${cmpCols}
+      ${hasCompare ? `<td>${showChange(r._entryDelta)}</td><td>${showChange(r._accDelta)}</td>` : ''}
+    </tr>`;
+  }).join('');
+}
+
+/* ==================== FILTERS ==================== */
+function setFilter(type, val) {
+  if (type === 'org2') filterOrg2 = val;
+  if (type === 'org3') filterOrg3 = val;
+  const primary = DataStore.getPrimary();
+  if (primary) renderAll(primary, DataStore.getCompare());
+}
+
+/* ==================== DRILL DOWN ==================== */
+// drillDown disabled
+
+// disabled
+
+// disabled
+
+// disabled
+
+// disabled
+
+// disabled
+
+// disabled
+
+// disabled
+
+function installResizeHandler() {
+  if (_resizeHandlerInstalled) return;
+  _resizeHandlerInstalled = true;
+  window.addEventListener('resize', () => {
+    ['chartBar', 'chartBarEntry', 'chartBarAcc', 'chartBarResign', 'chartAttendance', 'chartResign'].forEach(id => {
+      const dom = document.getElementById(id);
+      if (dom && dom._echart) dom._echart.resize();
+    });
+  });
+}
+
+function renderBarChart(data, compareData) {
+  const dom = document.getElementById('chartBar');
+  if (!dom || dom.offsetWidth === 0) return;
+  installResizeHandler();
+  let chart = dom._echart;
+  if (!chart) {
+    chart = echarts.init(dom);
+    dom._echart = chart;
+  }
+  const cats = data.map(r => r.org3);
+  const entryRates = data.map(r => r.录入率 != null && !isNaN(r.录入率) ? +(r.录入率 * 100).toFixed(1) : null);
+  const accRates = data.map(r => r.准确率 != null && !isNaN(r.准确率) ? +(r.准确率 * 100).toFixed(1) : null);
+  const resignRates = data.map(r => r.补签率 != null && !isNaN(r.补签率) ? +(r.补签率 * 100).toFixed(1) : null);
+
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['录入率 %', '准确率 %', '补签率 %'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+    grid: { left: '3%', right: '6%', top: 18, bottom: 45, containLabel: true },
+    xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+    yAxis: { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+    series: [
+      { name: '录入率 %', type: 'bar', data: entryRates, itemStyle: { color: '#3370ff', borderRadius: [4,4,0,0] }, barGap: '15%', label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '准确率 %', type: 'bar', data: accRates, itemStyle: { color: '#00bcd4', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '补签率 %', type: 'bar', data: resignRates, itemStyle: { color: '#ff9100', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10, formatter: function(p) { return p.value != null ? p.value + '%' : '—'; } } },
+      { name: '90% 达标', type: 'line', data: cats.map(function() { return 90; }), lineStyle: { color: 'rgba(0,181,120,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } },
+      { name: '70% 警戒', type: 'line', data: cats.map(function() { return 70; }), lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } }
+    ]
+  }, true);
+
+
+}function renderTrendChart(data, compareSummary, hasCompare) {
+  const dom = document.getElementById('chartTrend');
+  if (!dom) return;
+  installResizeHandler();
+  let chart = dom._echart;
+  if (!chart) {
+    chart = echarts.init(dom);
+    dom._echart = chart;
+  }
+  const cats = data.map(r => r.org3);
+
+  let trendEntry, trendAcc;
+  if (hasCompare && compareSummary) {
+    // Compare primary vs compare cycle
+    const cmpFiltered = compareSummary.filter(r => !r.isTotal);
+    const cmpMap = {};
+    cmpFiltered.forEach(r => { cmpMap[r.org3] = r; });
+    trendEntry = data.map(r => {
+      const cr = cmpMap[r.org3];
+      if (!cr || r.录入率 == null || isNaN(r.录入率) || cr.录入率 == null || isNaN(cr.录入率)) return null;
+      return +((r.录入率 - cr.录入率) * 100).toFixed(2);
+    });
+    trendAcc = data.map(r => {
+      const cr = cmpMap[r.org3];
+      if (!cr || r.准确率 == null || isNaN(r.准确率) || cr.准确率 == null || isNaN(cr.准确率)) return null;
+      return +((r.准确率 - cr.准确率) * 100).toFixed(2);
     });
   } else {
-    html += '<div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">暂无本期说明</div>';
+    // Built-in week-over-week deltas from Excel
+    trendEntry = data.map(r => r.录入率对比 != null && !isNaN(r.录入率对比) ? +(r.录入率对比 * 100).toFixed(2) : null);
+    trendAcc = data.map(r => r.准确率对比 != null && !isNaN(r.准确率对比) ? +(r.准确率对比 * 100).toFixed(2) : null);
   }
-  html += '</div>';
-  html += '</div>';
 
+  chart.setOption({
+    tooltip: { trigger: 'axis', formatter: function(params) {
+      return params.map(p => {
+        const v = p.value;
+        if (v == null) return `${p.marker} ${p.seriesName}: —`;
+        return `${p.marker} ${p.seriesName}: ${v > 0 ? '+' : ''}${v}%`;
+      }).join('<br>');
+    }},
+    legend: { data: ['录入率环比变化', '准确率环比变化'], textStyle: { color: '#8f959e', fontSize: 11 }, bottom: 0 },
+    grid: { left: '3%', right: '4%', top: 18, bottom: 45, containLabel: true },
+    xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#8f959e', formatter: function(v){ return (v>0?'+':'')+v+'%'; } }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+    series: [
+      { name: '录入率环比变化', type: 'line', data: trendEntry, connectNulls: false,
+        itemStyle: { color: '#3370ff' }, lineStyle: { width: 2.5 }, symbol: 'circle', symbolSize: 8,
+        areaStyle: { color: 'rgba(51,112,255,0.08)' },
+        markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0, lineStyle: { color: '#8f959e', type: 'dashed', width: 1.5 }, label: { formatter: '0% 基准', color: '#8f959e', fontSize: 10 } }] } },
+      { name: '准确率环比变化', type: 'line', data: trendAcc, connectNulls: false,
+        itemStyle: { color: '#00bcd4' }, lineStyle: { width: 2.5 }, symbol: 'diamond', symbolSize: 8,
+        areaStyle: { color: 'rgba(0,188,212,0.08)' } }
+    ]
+  }, true);
+}
+
+/* ==================== COMPARE RATE CHARTS (方案B: 分组柱+变化连线) ==================== */
+function renderCompareRateCharts(data, compareSummary) {
+  const primaryDN = getPrimaryDisplayName();
+  const compareDN = getCompareDisplayName();
+  const cmpFiltered = compareSummary.filter(r => !r.isTotal);
+  const cmpMap = {};
+  cmpFiltered.forEach(r => { cmpMap[r.org3] = r; });
+
+  const cats = data.map(r => r.org3);
+
+  function renderOneRate(domId, title, field, color) {
+    const dom = document.getElementById(domId);
+    if (!dom || dom.offsetWidth === 0 || dom.offsetHeight === 0) return;
+    let chart = dom._echart;
+    if (!chart) {
+      chart = echarts.init(dom);
+      dom._echart = chart;
+    }
+
+    const primaryVals = data.map(r => {
+      const v = r[field];
+      return (v != null && !isNaN(v)) ? +(v * 100).toFixed(1) : null;
+    });
+    const compareVals = data.map(r => {
+      const cr = cmpMap[r.org3];
+      if (!cr) return null;
+      const v = cr[field];
+      return (v != null && !isNaN(v)) ? +(v * 100).toFixed(1) : null;
+    });
+    // Change line data: difference between primary and compare
+    const changeVals = primaryVals.map((pv, i) => {
+      const cv = compareVals[i];
+      if (pv == null || cv == null) return null;
+      return +(pv - cv).toFixed(1);
+    });
+
+    chart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+        formatter: function(params) {
+          return params.map(p => {
+            if (p.seriesName === '变化') return `${p.marker} 变化: ${p.value > 0 ? '+' : ''}${p.value}pp`;
+            return `${p.marker} ${p.seriesName}: ${p.value != null ? p.value + '%' : '—'}`;
+          }).join('<br>');
+        }
+      },
+      legend: { data: [primaryDN, compareDN, '变化'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+      grid: { left: '3%', right: '8%', top: 12, bottom: 45, containLabel: true },
+      xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+      yAxis: [
+        { type: 'value', max: 110, axisLabel: { color: '#8f959e', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+        { type: 'value', axisLabel: { color: '#ffaa00', formatter: function(v){ return (v>0?'+':'')+v+'pp'; } }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: primaryDN, type: 'bar', data: primaryVals, barGap: '30%',
+          itemStyle: { color: color, borderRadius: [4,4,0,0] },
+          label: { show: true, position: 'top', color: color, fontSize: 10, formatter: p => p.value != null ? p.value + '%' : '' }
+        },
+        { name: compareDN, type: 'bar', data: compareVals,
+          itemStyle: { color: 'rgba(0,0,0,0.04)', borderColor: color, borderWidth: 1.5, borderRadius: [4,4,0,0] },
+          label: { show: true, position: 'top', color: 'rgba(0,0,0,0.3)', fontSize: 9, formatter: p => p.value != null ? p.value + '%' : '' }
+        },
+        { name: '变化', type: 'line', data: changeVals, yAxisIndex: 1,
+          itemStyle: { color: '#ffaa00' }, lineStyle: { width: 2.5 },
+          symbol: 'circle', symbolSize: 10,
+          label: { show: true, position: 'top', color: '#ffaa00', fontSize: 11, fontWeight: 'bold',
+            formatter: p => p.value != null ? (p.value > 0 ? '+' : '') + p.value + 'pp' : '' },
+          markLine: { silent: true, symbol: 'none',
+            data: [{ yAxis: 0, lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1 }, label: { formatter: '0', color: '#ffaa00', fontSize: 9 } }] }
+        }
+      ]
+    }, true);
+  }
+
+  renderOneRate('chartBarEntry', '录入率', '录入率', '#3370ff');
+  renderOneRate('chartBarAcc', '准确率', '准确率', '#00bcd4');
+  renderOneRate('chartBarResign', '补签率', '补签率', '#ff9100');
+}
+
+/* ==================== ATTENDANCE & RESIGN CHARTS ==================== */
+function renderAttendanceChart(data) {
+  const dom = document.getElementById('chartAttendance');
+  if (!dom || dom.offsetWidth === 0) return;
+  let chart = dom._echart;
+  if (!chart) { chart = echarts.init(dom); dom._echart = chart; }
+  const cats = data.map(r => r.org3);
+  const shouldPunch = data.map(r => formatInt(r.应打卡数)==='/'?null:r.应打卡数);
+  const actualPunch = data.map(r => formatInt(r.实际打卡数)==='/'?null:r.实际打卡数);
+  const abnormal = data.map(r => formatInt(r.工时异常数)==='/'?null:r.工时异常数);
+  const noCard = data.map(r => formatInt(r.无卡未统计)==='/'?null:r.无卡未统计);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['有卡应打卡数', '实际打卡数', '工时异常数', '线下无卡未统计'], textStyle: { color: '#8f959e', fontSize: 10 }, bottom: 0 },
+    grid: { left: '3%', right: '4%', top: 18, bottom: 45, containLabel: true },
+    xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#8f959e' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+    series: [
+      { name: '有卡应打卡数', type: 'bar', data: shouldPunch, itemStyle: { color: '#7c4dff', borderRadius: [4,4,0,0] }, barGap: '15%', label: { show: true, position: 'top', color: '#8f959e', fontSize: 10 } },
+      { name: '实际打卡数', type: 'bar', data: actualPunch, itemStyle: { color: '#3370ff', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#8f959e', fontSize: 10 } },
+      { name: '工时异常数', type: 'bar', data: abnormal, itemStyle: { color: '#ff5252', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#ff5252', fontSize: 10 } },
+      { name: '线下无卡未统计', type: 'bar', data: noCard, itemStyle: { color: '#ff9100', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#ff9100', fontSize: 10 } }
+    ]
+  }, true);
+}
+
+function renderResignChart(data) {
+  const dom = document.getElementById('chartResign');
+  if (!dom || dom.offsetWidth === 0) return;
+  let chart = dom._echart;
+  if (!chart) { chart = echarts.init(dom); dom._echart = chart; }
+  const cats = data.map(r => r.org3);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['应补签数', '已补签数', '待补签数'], textStyle: { color: '#8f959e', fontSize: 11 }, bottom: 0 },
+    grid: { left: '3%', right: '4%', top: 18, bottom: 45, containLabel: true },
+    xAxis: { type: 'category', data: cats, axisLabel: { color: '#8f959e', fontSize: 11 }, axisLine: { lineStyle: { color: '#dee0e3' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#8f959e' }, splitLine: { lineStyle: { color: '#eeeef1' } } },
+    series: [
+      { name: '应补签数', type: 'bar', data: data.map(r => formatInt(r.应补签数)==='/'?null:r.应补签数), itemStyle: { color: '#ffaa00', borderRadius: [4,4,0,0] }, barGap: '15%', label: { show: true, position: 'top', color: '#ffaa00', fontSize: 10 } },
+      { name: '已补签数', type: 'bar', data: data.map(r => formatInt(r.已补签数)==='/'?null:r.已补签数), itemStyle: { color: '#00b578', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#00b578', fontSize: 10 } },
+      { name: '待补签数', type: 'bar', data: data.map(r => formatInt(r.待补签数)==='/'?null:r.待补签数), itemStyle: { color: '#f54a45', borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#f54a45', fontSize: 10 } }
+    ]
+  }, true);
+}
+
+/* ==================== NOTES (LocalStorage) ==================== */
+function getNotes() {
+  try { return JSON.parse(localStorage.getItem('attendance_notes') || '[]'); }
+  catch(e) { return []; }
+}
+function saveNotes(notes) {
+  localStorage.setItem('attendance_notes', JSON.stringify(notes));
+}
+
+function renderNotes() {
+  const list = document.getElementById('notesList');
+  if (!list) return;
+  const allNotes = getNotes();
+  // Filter notes by current primary cycle
+  const currentCycle = DataStore.primaryKey;
+  const notes = currentCycle ? allNotes.filter(n => n.cycle === currentCycle) : allNotes;
+  if (notes.length === 0) {
+    list.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">暂无本期说明</div>`;
+    return;
+  }
+  // Find original index in full array for deletion
+  list.innerHTML = notes.map(n => {
+    const origIdx = allNotes.indexOf(n);
+    return `
+    <div class="note-entry">
+      <div>
+        <div class="note-content">${escapeHtml(n.text)}</div>
+        <div class="note-meta">${n.timestamp}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="deleteNote(${origIdx})">🗑</button>
+    </div>`;
+  }).join('');
+}
+
+function addNote() {
+  if (!isEditMode) { toast('请先切换到编辑模式'); return; }
+  const input = document.getElementById('noteInput');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) { toast('请输入内容'); return; }
+  const notes = getNotes();
+  const now = new Date();
+  const ts = now.getFullYear() + '-' +
+    String(now.getMonth()+1).padStart(2,'0') + '-' +
+    String(now.getDate()).padStart(2,'0') + ' ' +
+    String(now.getHours()).padStart(2,'0') + ':' +
+    String(now.getMinutes()).padStart(2,'0');
+  notes.unshift({ text, timestamp: ts, cycle: DataStore.primaryKey || '—' });
+  saveNotes(notes);
+  input.value = '';
+  renderNotes();
+  toast('机动说明已保存');
+}
+
+function deleteNote(idx) {
+  if (!isEditMode) { toast('请先切换到编辑模式'); return; }
+  const notes = getNotes();
+  notes.splice(idx, 1);
+  saveNotes(notes);
+  renderNotes();
+  toast('已删除');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/* ==================== CYCLE MANAGEMENT ==================== */
+function updateCycleSelectors() {
+  const keys = DataStore.getCycleKeys();
+  const primarySel = document.getElementById('primaryCycle');
+  const compareSel = document.getElementById('compareCycle');
+
+  const curPrimary = primarySel.value;
+  const curCompare = compareSel.value;
+
+  primarySel.innerHTML = '<option value="">-- 选择周期 --</option>';
+  keys.forEach(k => {
+    const dn = DataStore.cycles[k].displayName || k;
+    primarySel.innerHTML += `<option value="${k}">${dn}</option>`;
+  });
+  compareSel.innerHTML = '<option value="">-- 对比周期(可选) --</option>';
+  keys.forEach(k => {
+    const dn = DataStore.cycles[k].displayName || k;
+    compareSel.innerHTML += `<option value="${k}">${dn}</option>`;
+  });
+
+  if (keys.includes(curPrimary)) primarySel.value = curPrimary;
+  if (curCompare && keys.includes(curCompare)) compareSel.value = curCompare;
+
+  if (!primarySel.value && keys.length > 0) {
+    primarySel.value = keys[0];
+    DataStore.primaryKey = keys[0];
+  }
+}
+
+function getPrimaryDisplayName() {
+  const p = DataStore.getPrimary();
+  return p ? (p.displayName || DataStore.primaryKey) : '';
+}
+
+function getCompareDisplayName() {
+  const c = DataStore.getCompare();
+  return c ? (c.displayName || DataStore.compareKey) : '';
+}
+
+function onPrimaryCycleChange() {
+  const sel = document.getElementById('primaryCycle');
+  DataStore.primaryKey = sel.value || null;
+  // Clear compare if same
+  if (DataStore.compareKey === DataStore.primaryKey) {
+    DataStore.compareKey = null;
+    document.getElementById('compareCycle').value = '';
+  }
+  refreshDashboard();
+}
+
+function onCompareCycleChange() {
+  const sel = document.getElementById('compareCycle');
+  DataStore.compareKey = sel.value || null;
+  refreshDashboard();
+}
+
+function refreshDashboard() {
+  const primary = DataStore.getPrimary();
+  const compare = DataStore.getCompare();
+  renderAll(primary, compare);
+}
+
+async function handleFileImport(files) {
+  if (!files || files.length === 0) return;
+  if (!isEditMode) { toast('请先切换到编辑模式'); return; }
+  showLoading();
+  let loaded = 0;
+  let skipped = 0;
+  const errors = [];
+
+  for (let file of files) {
+    try {
+      const data = await loadFile(file);
+      const existing = DataStore.cycles[data.cycleKey];
+      if (existing) {
+        const dn = data.displayName;
+        const confirmMsg = `周期「${dn}」已存在（来源：${existing.fileName}）。\n\n请先清空该周期后再导入，或选择跳过。\n\n点击"确定"将覆盖已有数据，点击"取消"跳过。`;
+        if (!confirm(confirmMsg)) {
+          skipped++;
+          continue;
+        }
+      }
+      DataStore.addCycle(data.cycleKey, data);
+      loaded++;
+    } catch (e) {
+      errors.push(`${file.name}: ${e.message}`);
+    }
+  }
+
+  hideLoading();
+
+  if (loaded > 0) {
+    updateCycleSelectors();
+    if (!DataStore.primaryKey) {
+      const keys = DataStore.getCycleKeys();
+      if (keys.length > 0) {
+        DataStore.primaryKey = keys[keys.length - 1];
+        document.getElementById('primaryCycle').value = DataStore.primaryKey;
+      }
+    }
+    refreshDashboard();
+    let msg = `成功加载 ${loaded} 个文件`;
+    if (skipped > 0) msg += `，跳过 ${skipped} 个`;
+    toast(msg);
+  } else if (skipped > 0) {
+    toast('所有文件均已存在，已跳过');
+  }
+
+  if (errors.length > 0) {
+    setTimeout(() => {
+      errors.forEach(e => toast('❌ ' + e, 4000));
+    }, 500);
+  }
+}
+
+function clearAllData() {
+  if (!isEditMode) { toast('请先切换到编辑模式'); return; }
+  const keys = DataStore.getCycleKeys();
+  if (keys.length === 0) { toast('没有已加载的数据'); return; }
+
+  // Build a simple selection dialog using confirm with cycle names
+  let msg = '选择要清空的周期：\n\n';
+  keys.forEach((k, i) => {
+    const dn = DataStore.cycles[k].displayName || k;
+    msg += `  ${i + 1}. ${dn}\n`;
+  });
+  msg += `  ${keys.length + 1}. 全部清空\n\n请输入序号（多个用逗号分隔，如 1,3）：`;
+
+  const input = prompt(msg, String(keys.length + 1));
+  if (!input) return;
+
+  const selections = input.split(/[,，\s]+/).map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+
+  if (selections.includes(keys.length + 1)) {
+    // Clear all
+    if (!confirm('确定清空所有已导入的数据？本期说明不会丢失。')) return;
+    DataStore.clear();
+    updateCycleSelectors();
+    refreshDashboard();
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('dashboardContent').style.display = 'none';
+    toast('已清空所有数据');
+  } else {
+    // Clear selected
+    const toRemove = [];
+    selections.forEach(n => {
+      if (n >= 1 && n <= keys.length) toRemove.push(keys[n - 1]);
+    });
+    if (toRemove.length === 0) { toast('未选择有效周期'); return; }
+    const names = toRemove.map(k => DataStore.cycles[k].displayName || k).join('、');
+    if (!confirm(`确定清空以下周期数据？\n${names}`)) return;
+    toRemove.forEach(k => DataStore.removeCycle(k));
+    updateCycleSelectors();
+    // If primary was removed, pick the first remaining
+    if (!DataStore.primaryKey) {
+      const remaining = DataStore.getCycleKeys();
+      if (remaining.length > 0) {
+        DataStore.primaryKey = remaining[0];
+        document.getElementById('primaryCycle').value = DataStore.primaryKey;
+      }
+    }
+    refreshDashboard();
+    if (DataStore.getCycleKeys().length === 0) {
+      document.getElementById('emptyState').style.display = 'flex';
+      document.getElementById('dashboardContent').style.display = 'none';
+    }
+    toast(`已清空 ${toRemove.length} 个周期`);
+  }
+}
+
+/* ==================== INIT ==================== */
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  handleFileImport(e.target.files);
+  this.value = '';
+});
+
+document.getElementById('packInput').addEventListener('change', async function(e) {
+  if (!e.target.files || e.target.files.length === 0) return;
+  showLoading();
+  try {
+    const count = await DataStore.importDataPack(e.target.files[0]);
+    updateCycleSelectors();
+    if (!DataStore.primaryKey) {
+      const keys = DataStore.getCycleKeys();
+      if (keys.length > 0) {
+        DataStore.primaryKey = keys[0];
+        document.getElementById('primaryCycle').value = DataStore.primaryKey;
+      }
+    }
+    refreshDashboard();
+    toast(`成功导入数据包（${count} 个周期）`);
+  } catch(e) {
+    toast('❌ 数据包导入失败: ' + e.message, 4000);
+  }
+  hideLoading();
+  this.value = '';
+});
+
+// Restore on load
+document.addEventListener('DOMContentLoaded', () => {
+  IS_STANDALONE = detectStandalone();
+  if (IS_STANDALONE) {
+    // === Standalone mode: load from embedded data, hide edit UI ===
+    isEditMode = false;
+    try { document.getElementById('loading').classList.remove('active'); } catch(e) {}
+
+    // Load embedded data directly into DataStore
+    var packEl = document.getElementById('dataPlaceholder');
+    if (packEl) {
+      try {
+        var pack = JSON.parse(packEl.textContent.trim());
+        if (pack && pack.cycles) {
+          var keys = Object.keys(pack.cycles);
+          for (var i = 0; i < keys.length; i++) {
+            DataStore.cycles[keys[i]] = pack.cycles[keys[i]];
+          }
+          // Set primary to first cycle
+          DataStore.primaryKey = keys[0];
+        }
+      } catch(e) { console.error(e); }
+    }
+
+    // Hide edit UI
+    var hideIds = ['btnImport','btnExportPack','btnImportPack','btnClear','btnEditMode','btnGenerate','loginOverlay'];
+    for (var j = 0; j < hideIds.length; j++) {
+      try { var he = document.getElementById(hideIds[j]); if (he) he.style.display = 'none'; } catch(e) {}
+    }
+    try {
+      var bd = document.getElementById('roleBadge');
+      if (bd) { bd.className = 'role-badge editor'; bd.textContent = '📋 只读看板'; }
+      var nw = document.querySelector('.note-input-wrap');
+      if (nw) nw.style.display = 'none';
+    } catch(e) {}
+
+    // Render: update selectors and show dashboard
+    updateCycleSelectors();
+    var sel = document.getElementById('primaryCycle');
+    if (sel && DataStore.primaryKey) sel.value = DataStore.primaryKey;
+    refreshDashboard();
+    return;
+  }
+
+  // === Normal mode ===
+  initPermission();
+  updateEditUI();
+
+  // Restore cycles from localStorage
+  const restored = DataStore.restoreFromStorage();
+  if (restored > 0) {
+    updateCycleSelectors();
+    const keys = DataStore.getCycleKeys();
+    if (keys.length > 0) {
+      DataStore.primaryKey = keys[keys.length - 1];
+      document.getElementById('primaryCycle').value = DataStore.primaryKey;
+    }
+    refreshDashboard();
+  }
+});
+
+// Keyboard shortcut: Escape to close modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {}
+});
+</script>
+</body>
+</html>
