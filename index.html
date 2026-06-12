@@ -1251,20 +1251,15 @@ function renderAll(primary, compare) {
     html += `</div>`;
   }
 
-  //   // Ad-hoc notes
-  html += '<div class="ad-hoc-notes">';
-  html += '<div class="section-title">\U0001f4dd \u672c\u671f\u8bf4\u660e</div>';
-  html += '<div class="notes-list">';
-  if (primary.adhocNotes && primary.adhocNotes.length > 0) {
-    primary.adhocNotes.forEach(function(n) {
-      html += '<div class="note-entry"><div class="note-content">' + escapeHtml(n) + '</div></div>';
-    });
-  } else {
-    html += '<div style="color:var(--text-muted);font-size:0.85rem;padding:8px 0;">\u6682\u65e0\u672c\u671f\u8bf4\u660e</div>';
-  }
-  html += '</div>';
-  html += '</div>';
-
+  // Ad-hoc notes
+  html += `<div class="ad-hoc-notes">
+    <div class="section-title">本期说明</div>
+    <div class="notes-list" id="notesList"></div>
+    <div class="note-input-wrap">
+      <textarea id="noteInput" placeholder="输入本期说明（纯文本）…" rows="2" ${isEditMode ? '' : 'disabled'}></textarea>
+      <button class="btn btn-primary btn-sm" onclick="addNote()" ${isEditMode ? '' : 'disabled'}>💾 保存</button>
+    </div>
+  </div>`;
 
   container.innerHTML = html;
 
@@ -1980,6 +1975,19 @@ document.addEventListener('DOMContentLoaded', () => {
           var keys = Object.keys(pack.cycles);
           for (var i = 0; i < keys.length; i++) {
             DataStore.cycles[keys[i]] = pack.cycles[keys[i]];
+            // Also load adhocNotes from embedded data into localStorage
+            var cycleNotes = pack.cycles[keys[i]].adhocNotes;
+            if (cycleNotes && cycleNotes.length > 0) {
+              var existingNotes = getNotes();
+              // Check if these notes are already in localStorage
+              var found = existingNotes.some(function(n) { return n.cycle === keys[i] && n.fromEmbedded; });
+              if (!found) {
+                cycleNotes.forEach(function(noteText) {
+                  existingNotes.unshift({ text: noteText, timestamp: '数据源导入', cycle: keys[i], fromEmbedded: true });
+                });
+                saveNotes(existingNotes);
+              }
+            }
           }
           // Set primary to first cycle
           DataStore.primaryKey = keys[0];
