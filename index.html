@@ -1481,18 +1481,18 @@ function installResizeHandler() {
 }
 
 function renderBarChart(data, compareData) {
-  const dom = document.getElementById('chartBar');
-  if (!dom || dom.offsetWidth === 0) return;
+  var dom = document.getElementById('chartBar');
+  if (!dom) return;
   installResizeHandler();
-  let chart = dom._echart;
+  var chart = dom._echart;
   if (!chart) {
     chart = echarts.init(dom);
     dom._echart = chart;
   }
-  const cats = data.map(r => r.org3);
-  const entryRates = data.map(r => r.录入率 != null && !isNaN(r.录入率) ? +(r.录入率 * 100).toFixed(1) : null);
-  const accRates = data.map(r => r.准确率 != null && !isNaN(r.准确率) ? +(r.准确率 * 100).toFixed(1) : null);
-  const resignRates = data.map(r => r.补签率 != null && !isNaN(r.补签率) ? +(r.补签率 * 100).toFixed(1) : null);
+  var cats = data.map(function(r) { return r.org3; });
+  var entryRates = data.map(function(r) { return r.录入率 != null && !isNaN(r.录入率) ? +(r.录入率 * 100).toFixed(1) : null; });
+  var accRates = data.map(function(r) { return r.准确率 != null && !isNaN(r.准确率) ? +(r.准确率 * 100).toFixed(1) : null; });
+  var resignRates = data.map(function(r) { return r.补签率 != null && !isNaN(r.补签率) ? +(r.补签率 * 100).toFixed(1) : null; });
 
   chart.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
@@ -1508,9 +1508,9 @@ function renderBarChart(data, compareData) {
       { name: '70% 警戒', type: 'line', data: cats.map(function() { return 70; }), lineStyle: { color: 'rgba(255,170,0,0.5)', type: 'dashed', width: 1.5 }, symbol: 'none', itemStyle: { color: 'transparent' }, label: { show: false } }
     ]
   }, true);
+}
 
-
-}function renderTrendChart(data, compareSummary, hasCompare) {
+function renderTrendChart(data, compareSummary, hasCompare) {
   const dom = document.getElementById('chartTrend');
   if (!dom) return;
   installResizeHandler();
